@@ -1,0 +1,1 @@
+# MVP hiện dùng Python standard library để giảm dependency và build image nhẹ.

@@ -1,0 +1,8 @@
+__pycache__/
+*.py[cod]
+.venv/
+.idea/
+data/
+lakehouse/
+benchmark/*.csv
+docs/data_quality_report.md

@@ -1,0 +1,187 @@
+services:
+  pipeline:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: banking_lakehouse_pipeline
+    environment:
+      PYTHON_BIN: python
+      CUSTOMERS: ${CUSTOMERS:-1000}
+      TRANSACTIONS: ${TRANSACTIONS:-10000}
+      DATA_DIR: /workspace/data
+      LAKEHOUSE_DIR: /workspace/lakehouse
+      DASHBOARD_DIR: /workspace/dashboard
+      DOCS_DIR: /workspace/docs
+    volumes:
+      - runtime_data:/workspace/data
+      - runtime_lakehouse:/workspace/lakehouse
+      - ./dashboard:/workspace/dashboard
+      - runtime_docs:/workspace/docs
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      spark-master:
+        condition: service_started
+
+  kafka:
+    image: bitnami/kafka:3.7
+    container_name: banking_lakehouse_kafka
+    environment:
+      KAFKA_CFG_NODE_ID: 1
+      KAFKA_CFG_PROCESS_ROLES: broker,controller
+      KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_CFG_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_CFG_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_CFG_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE: "true"
+      ALLOW_PLAINTEXT_LISTENER: "yes"
+    ports:
+      - "${KAFKA_PORT:-9092}:9092"
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-topics.sh --bootstrap-server localhost:9092 --list >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+    volumes:
+      - kafka_data:/bitnami/kafka
+
+  spark-master:
+    image: bitnami/spark:3.5
+    container_name: banking_lakehouse_spark_master
+    environment:
+      SPARK_MODE: master
+      SPARK_MASTER_HOST: spark-master
+    ports:
+      - "${SPARK_MASTER_WEB_PORT:-8082}:8080"
+      - "${SPARK_MASTER_PORT:-7077}:7077"
+    volumes:
+      - runtime_data:/workspace/data
+      - runtime_lakehouse:/workspace/lakehouse
+      - ./dashboard:/workspace/dashboard
+
+  spark-worker:
+    image: bitnami/spark:3.5
+    container_name: banking_lakehouse_spark_worker
+    environment:
+      SPARK_MODE: worker
+      SPARK_MASTER_URL: spark://spark-master:7077
+      SPARK_WORKER_MEMORY: 1G
+      SPARK_WORKER_CORES: 1
+    depends_on:
+      spark-master:
+        condition: service_started
+    volumes:
+      - runtime_data:/workspace/data
+      - runtime_lakehouse:/workspace/lakehouse
+      - ./dashboard:/workspace/dashboard
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: banking_lakehouse_postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-banking}
+      POSTGRES_USER: ${POSTGRES_USER:-banking}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-banking}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./configs/resources/postgres:/sql:ro
+      - runtime_data:/workspace/data:ro
+
+  minio:
+    image: minio/minio:latest
+    container_name: banking_lakehouse_minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+    ports:
+      - "${MINIO_API_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    volumes:
+      - minio_data:/data
+
+  minio-client:
+    image: minio/mc:latest
+    container_name: banking_lakehouse_minio_client
+    profiles:
+      - tools
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      MINIO_BUCKET: ${MINIO_BUCKET:-banking-lakehouse}
+    volumes:
+      - runtime_data:/workspace/data:ro
+      - runtime_lakehouse:/workspace/lakehouse:ro
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-c"]
+    command: >
+      "mc alias set lakehouse http://minio:9000 $$MINIO_ROOT_USER $$MINIO_ROOT_PASSWORD &&
+       mc rm --recursive --force lakehouse/$$MINIO_BUCKET || true &&
+       mc mb -p lakehouse/$$MINIO_BUCKET &&
+       mc mirror --overwrite /workspace/data lakehouse/$$MINIO_BUCKET/source_data &&
+       mc mirror --overwrite /workspace/lakehouse lakehouse/$$MINIO_BUCKET/lakehouse"
+
+  airflow:
+    image: apache/airflow:2.10.5-python3.10
+    container_name: banking_lakehouse_airflow
+    user: "0:0"
+    profiles:
+      - airflow
+    environment:
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "false"
+      AIRFLOW__CORE__EXECUTOR: SequentialExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: sqlite:////opt/airflow/airflow.db
+      PROJECT_HOME: /opt/airflow/project
+      _AIRFLOW_WWW_USER_USERNAME: admin
+      _AIRFLOW_WWW_USER_PASSWORD: admin
+      PYTHON_BIN: python
+      PYTHONPATH: /opt/airflow/project/src
+      DATA_DIR: /workspace/data
+      LAKEHOUSE_DIR: /workspace/lakehouse
+      DASHBOARD_DIR: /opt/airflow/project/dashboard
+      DOCS_DIR: /workspace/docs
+    ports:
+      - "${AIRFLOW_PORT:-8081}:8080"
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags:ro
+      - ./:/opt/airflow/project:ro
+      - runtime_data:/workspace/data
+      - runtime_lakehouse:/workspace/lakehouse
+      - runtime_docs:/workspace/docs
+      - ./dashboard:/opt/airflow/project/dashboard
+    depends_on:
+      minio:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      spark-master:
+        condition: service_started
+    command: standalone
+
+volumes:
+  postgres_data:
+  minio_data:
+  kafka_data:
+  runtime_data:
+  runtime_lakehouse:
+  runtime_docs:
