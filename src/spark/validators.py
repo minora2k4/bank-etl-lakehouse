@@ -1,7 +1,7 @@
 ﻿from collections import defaultdict
 from datetime import datetime
 
-from banking_lakehouse.data_quality.quarantine_handler import quarantine_record
+from spark.error_handler import error_record
 
 
 valid_gender = {"MALE", "FEMALE", "OTHER", "M", "F", "male"}
@@ -17,7 +17,7 @@ def normalize_gender(value):
 
 
 def validate_customers(rows):
-    """Validate và clean bảng customers."""
+    """Kiểm tra và làm sạch bảng customers."""
     valid = []
     invalid = []
     for row in rows:
@@ -37,14 +37,14 @@ def validate_customers(rows):
         row["data_quality_status"] = "FIXED_MINOR_ISSUE" if row["province"] == "UNKNOWN" else "VALID"
         if errors:
             for e in errors:
-                invalid.append(quarantine_record(row, "customers", *e))
+                invalid.append(error_record(row, "customers", *e))
         else:
             valid.append(row)
     return valid, invalid
 
 
 def validate_accounts(rows, customer_ids):
-    """Validate và clean bảng accounts."""
+    """Kiểm tra và làm sạch bảng accounts."""
     valid = []
     invalid = []
     for row in rows:
@@ -57,7 +57,7 @@ def validate_accounts(rows, customer_ids):
             errors.append(("INVALID_STATUS", "status", "valid_values", "status is invalid"))
         if errors:
             for e in errors:
-                invalid.append(quarantine_record(row, "accounts", *e))
+                invalid.append(error_record(row, "accounts", *e))
         else:
             row["data_quality_status"] = "VALID"
             valid.append(row)
@@ -65,17 +65,17 @@ def validate_accounts(rows, customer_ids):
 
 
 def validate_passthrough(rows, source_table):
-    """Clean nhẹ cho bảng dimension/fact không có rule nghiêm ngặt trong MVP."""
+    """Làm sạch nhẹ cho bảng dimension/fact không có rule nghiêm ngặt trong MVP."""
     for row in rows:
         row["data_quality_status"] = "VALID"
     return rows, []
 
 
 def validate_transactions(rows, account_ids, customer_ids):
-    """Validate transactions, tách quarantine và deduplicate."""
+    """Kiểm tra giao dịch, tách bản ghi lỗi và loại trùng."""
     invalid = []
     candidates = []
-    now = datetime(2026, 6, 10, 23, 59, 59)
+    now = datetime.now()
     for row in rows:
         apply_schema_drift(row)
         errors = []
@@ -101,7 +101,7 @@ def validate_transactions(rows, account_ids, customer_ids):
             errors.append(("INVALID_CURRENCY", "currency", "valid_values", "currency must be VND"))
         if errors:
             for e in errors:
-                invalid.append(quarantine_record(row, "transactions", *e))
+                invalid.append(error_record(row, "transactions", *e))
         else:
             row = clean_transaction(row, amount, txn_time)
             candidates.append(row)
@@ -111,7 +111,7 @@ def validate_transactions(rows, account_ids, customer_ids):
 
 
 def clean_transaction(row, amount, txn_time):
-    """Chuẩn hóa transaction và tạo derived fields."""
+    """Chuẩn hóa giao dịch và tạo trường dẫn xuất."""
     ingestion = parse_ts(row.get("ingestion_time")) or txn_time
     delay_hours = round((ingestion - txn_time).total_seconds() / 3600, 2)
     row["amount_vnd"] = amount
@@ -129,7 +129,7 @@ def clean_transaction(row, amount, txn_time):
 
 
 def deduplicate_transactions(rows):
-    """Giữ transaction có ingestion_time mới nhất khi duplicate transaction_id."""
+    """Giữ giao dịch có ingestion_time mới nhất khi trùng transaction_id."""
     grouped = defaultdict(list)
     for row in rows:
         grouped[row["transaction_id"]].append(row)
@@ -139,7 +139,7 @@ def deduplicate_transactions(rows):
         group = sorted(group, key=lambda r: parse_ts(r.get("ingestion_time")) or datetime.min, reverse=True)
         valid.append(group[0])
         for dup in group[1:]:
-            invalid.append(quarantine_record(
+            invalid.append(error_record(
                 dup,
                 "transactions",
                 "DUPLICATE_TRANSACTION_ID",
@@ -151,7 +151,7 @@ def deduplicate_transactions(rows):
 
 
 def apply_schema_drift(row):
-    """Map schema drift transaction_amount_vnd về amount_vnd nếu có."""
+    """Ánh xạ schema drift transaction_amount_vnd về amount_vnd nếu có."""
     if "amount_vnd" not in row and "transaction_amount_vnd" in row:
         row["amount_vnd"] = row["transaction_amount_vnd"]
 
@@ -181,7 +181,7 @@ def income_band(income):
 
 
 def to_int(value):
-    """Cast số an toàn."""
+    """Ép kiểu số an toàn."""
     try:
         if value in ["", None]:
             return None
@@ -191,7 +191,7 @@ def to_int(value):
 
 
 def parse_ts(value):
-    """Parse timestamp từ source."""
+    """Phân tích timestamp từ source."""
     if not value:
         return None
     for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S"):

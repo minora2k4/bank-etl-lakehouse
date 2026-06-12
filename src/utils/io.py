@@ -51,13 +51,13 @@ def append_csv(path, rows, fieldnames=None):
 
 
 def row_hash(row):
-    """Tạo hash cho record để audit và reprocess."""
+    """Tạo hash cho bản ghi để audit và reprocess."""
     payload = json.dumps(row, sort_keys=True, ensure_ascii=False, default=str)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 def json_dumps(row):
-    """Chuyển record sang JSON string cho quarantine."""
+    """Chuyển bản ghi sang JSON string cho error layer."""
     return json.dumps(row, sort_keys=True, ensure_ascii=False, default=str)
 
 

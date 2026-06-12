@@ -1,1 +1,3 @@
-# MVP hiện dùng Python standard library để giảm dependency và build image nhẹ.
+# Client runtime cho các service streaming-first.
+confluent-kafka
+psycopg[binary]

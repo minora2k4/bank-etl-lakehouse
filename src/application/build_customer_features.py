@@ -1,13 +1,13 @@
 ﻿from collections import defaultdict
 from datetime import date, timedelta
 
-from banking_lakehouse.config.settings import curated_data_dir
-from banking_lakehouse.application.build_curated_tables import read_clean_table, read_clean_transactions, to_int
-from banking_lakehouse.utils.io import write_csv
+from application.build_curated_tables import read_clean_table, read_clean_transactions, to_int
+from config.settings import curated_data_dir
+from utils.io import write_csv
 
 
 def build_customer_features(feature_date="2026-06-10"):
-    """Build customer_summary cho Project 2 credit risk."""
+    """Xây dựng customer_summary cho Project 2 credit risk."""
     customers = read_clean_table("customers")
     accounts = read_clean_table("accounts")
     loans = read_clean_table("loans")
@@ -34,7 +34,7 @@ def build_customer_features(feature_date="2026-06-10"):
             **rpm.get(cid, zero_repayment()),
         })
 
-    out = curated_data_dir / f"customer_summary_{feature_date}.csv"
+    out = curated_data_dir / "customer_summary.csv"
     write_csv(out, rows)
     return out
 
@@ -100,12 +100,12 @@ def summarize_repayments(rows):
 
 
 def zero_account():
-    """Default account summary."""
+    """Giá trị mặc định cho account summary."""
     return {"num_accounts": 0, "total_balance_vnd": 0}
 
 
 def zero_transaction():
-    """Default transaction summary."""
+    """Giá trị mặc định cho transaction summary."""
     return {
         "transaction_count_30d": 0,
         "transaction_amount_30d_vnd": 0,
@@ -120,12 +120,12 @@ def zero_transaction():
 
 
 def zero_loan():
-    """Default loan summary."""
+    """Giá trị mặc định cho loan summary."""
     return {"loan_count": 0, "total_loan_amount_vnd": 0}
 
 
 def zero_repayment():
-    """Default repayment summary."""
+    """Giá trị mặc định cho repayment summary."""
     return {"max_days_past_due": 0, "late_payment_count": 0, "missed_payment_count": 0}
 
 

@@ -1,47 +1,71 @@
 # Reliable Banking Data Lakehouse Pipeline
 
-Project mô phỏng pipeline lakehouse ngân hàng theo ngữ cảnh VPBank/Việt Nam. Dữ liệu dùng VND, tỉnh thành Việt Nam, kênh VPBANK_NEO, NAPAS_QR, ATM, POS, BRANCH; tên bảng, cột, file và job dùng tiếng Anh.
+Demo banking lakehouse theo hướng streaming-first, dùng Kafka, Spark, ghi nhận giao dịch ACID trên PostgreSQL, MinIO và các file CSV phục vụ Power BI.
 
-## Chạy nhanh
+## Chạy Luồng Batch Dự Phòng
 
-Chạy pipeline và publish lên MinIO:
-
-```bash
-sh scripts/run_pipeline_and_publish.sh
-```
-
-Chạy dữ liệu lớn hơn:
+Luồng batch vẫn được giữ để kiểm thử local và backfill:
 
 ```bash
-CUSTOMERS=10000 TRANSACTIONS=1000000 sh scripts/run_pipeline_and_publish.sh
+sh scripts/start.sh
 ```
 
-## Lakehouse
+Chạy mẫu với dữ liệu lớn hơn:
 
-Dữ liệu runtime nằm trong Docker named volumes và được mirror lên MinIO, không lưu trong source folder local.
+```bash
+CUSTOMERS=10000 TRANSACTIONS=1000000 sh scripts/start.sh
+```
 
-Bucket MinIO: `banking-lakehouse`
+## Chạy Demo Streaming
 
-Trong bucket chỉ có:
+Khởi động platform, tạo Kafka topic, chuẩn bị dữ liệu tham chiếu, chạy Spark validator, chạy dịch vụ ghi nhận PostgreSQL và đẩy output lakehouse:
 
-- `source_data/`
-- `lakehouse/`
+```bash
+sh scripts/start_streaming.sh
+```
 
-Trong `lakehouse/` chỉ có bốn vùng:
+Chỉ khởi động platform:
 
-- `raw`
-- `clean`
-- `curated`
-- `quarantine`
+```bash
+sh scripts/setup.sh
+```
 
-Các vùng này chứa CSV trực tiếp. Transaction được tách theo file ngày, ví dụ `transactions_2026-06-10.csv`.
+Gửi message Kafka mẫu:
 
-## Tooling
+```bash
+sh scripts/kafka.sh
+```
+
+## Dịch Vụ Chính
 
 - MinIO: `http://localhost:9001`
-- Airflow: `http://localhost:8081`
-- Airflow user/password: `admin` / `admin`
-- PostgreSQL source database: `sh scripts/load_postgres_sources.sh`
-- Serving query MVP: `sh scripts/run_serving_query.sh`
+- Kafka UI: `http://localhost:8083`
+- Spark UI: `http://localhost:8082`
+- Jupyter: `http://localhost:8888`
+- PostgreSQL: `localhost:5432`
+- pgAdmin: `http://localhost:5050`, user/password `admin@bank.com/admin`
+- Folder input cho Power BI: `dashboard`
 
-Chi tiết setup nằm tại `docs/tooling_setup.md`.
+## Topic Kafka
+
+- `raw-transactions`
+- `clean-transactions`
+- `error-transactions`
+
+## Cấu Trúc Lakehouse
+
+Bucket MinIO `banking-lakehouse` chỉ chứa:
+
+- `lakehouse/raw/raw_transactions.csv`
+- `lakehouse/clean/clean_transactions.csv`
+- `lakehouse/error/error_transactions.csv`
+- `lakehouse/curated/`
+- `lakehouse/audit/`
+
+`source_data/` không còn được mirror lên MinIO. PostgreSQL/source CSV giữ vai trò nguồn dữ liệu chuẩn cho dữ liệu master/tham chiếu.
+
+## Cấu Trúc Source
+
+- `src/kafka`: simulator và transaction producer.
+- `src/spark`: rule chất lượng dữ liệu, lakehouse sink và Spark streaming validator.
+- `src/application/postgres_transaction_updater.py`: cập nhật số dư ACID, chống xử lý trùng và ghi ledger audit.

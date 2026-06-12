@@ -1,0 +1,22 @@
+topics:
+  - name: raw-transactions
+    partitions: 3
+    replication_factor: 1
+    retention_ms: 604800000
+    key: transaction_id
+    producer: transaction-producer
+    consumer: spark-streaming-validator
+  - name: clean-transactions
+    partitions: 3
+    replication_factor: 1
+    retention_ms: 604800000
+    key: transaction_id
+    producer: spark-streaming-validator
+    consumer: postgres-transaction-updater
+  - name: error-transactions
+    partitions: 3
+    replication_factor: 1
+    retention_ms: 2592000000
+    key: transaction_id
+    producer: spark-streaming-validator
+    consumer: lakehouse-error-sink

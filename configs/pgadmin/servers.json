@@ -1,0 +1,15 @@
+{
+  "Servers": {
+    "1": {
+      "Name": "banking-local",
+      "Group": "Servers",
+      "Host": "postgres",
+      "Port": 5432,
+      "MaintenanceDB": "banking",
+      "Username": "banking",
+      "Password": "banking",
+      "SSLMode": "prefer",
+      "SavePassword": true
+    }
+  }
+}

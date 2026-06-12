@@ -17,5 +17,5 @@ if DAG:
     ) as dag:
         run_pipeline = BashOperator(
             task_id="run_banking_lakehouse_pipeline",
-            bash_command='cd "${PROJECT_HOME:-/opt/airflow/project}" && sh scripts/run_pipeline.sh ',
+            bash_command='cd "${PROJECT_HOME:-/opt/airflow/project}" && sh scripts/pipeline.sh ',
         )

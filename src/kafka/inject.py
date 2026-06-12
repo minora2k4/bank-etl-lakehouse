@@ -3,7 +3,7 @@ from datetime import datetime
 
 
 def inject_customer_issues(rows):
-    """Inject lỗi khách hàng để kiểm thử data quality."""
+    """Inject lỗi khách hàng để kiểm thử chất lượng dữ liệu."""
     if not rows:
         return
     for row in random.sample(rows, max(1, len(rows) // 100)):
@@ -25,7 +25,7 @@ def inject_account_issues(rows):
 
 
 def inject_transaction_issues(rows):
-    """Inject lỗi transaction theo yêu cầu data quality."""
+    """Inject lỗi giao dịch theo yêu cầu chất lượng dữ liệu."""
     if len(rows) < 20:
         return
     random.choice(rows)["transaction_id"] = ""

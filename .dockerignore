@@ -5,5 +5,5 @@ __pycache__/
 *.py[cod]
 lakehouse/
 data/
-benchmark/*.csv
+dashboard/*.csv
 docs/data_quality_report.md

@@ -1,9 +1,9 @@
-﻿from banking_lakehouse.config.settings import default_batch_id, default_ingestion_date, postgres_tables, raw_data_dir, source_db_dir, source_files_dir
-from banking_lakehouse.utils.io import now_ts, read_csv, row_hash, write_csv
+from config.settings import default_batch_id, default_ingestion_date, raw_data_dir, source_files_dir
+from utils.io import now_ts, read_csv, row_hash, write_csv
 
 
 def add_raw_metadata(rows, ingestion_date, batch_id, source_system, raw_file_name):
-    """Thêm metadata audit cho dữ liệu raw."""
+    """Thêm metadata audit cho raw event row."""
     out = []
     for row in rows:
         raw = dict(row)
@@ -18,27 +18,17 @@ def add_raw_metadata(rows, ingestion_date, batch_id, source_system, raw_file_nam
 
 
 def load_database_sources(ingestion_date=default_ingestion_date, batch_id=default_batch_id):
-    """Load source tables mô phỏng database vào vùng raw."""
-    outputs = []
-    for table in postgres_tables:
-        path = source_db_dir / f"{table}.csv"
-        if not path.exists():
-            continue
-        rows = add_raw_metadata(read_csv(path), ingestion_date, batch_id, "POSTGRES", path.name)
-        out = raw_data_dir / f"{table}.csv"
-        write_csv(out, rows)
-        outputs.append(out)
-    return outputs
+    """Giữ master/tham chiếu data ở source file PostgreSQL, không copy vào lakehouse raw."""
+    return []
 
 
 def load_file_sources(ingestion_date=default_ingestion_date, batch_id=default_batch_id):
-    """Load source files vào vùng raw."""
+    """Nạp event giao dịch vào raw event log của lakehouse."""
     outputs = []
     files = [
-        ("transactions", source_files_dir / "historical_transactions_2026_06.csv", "transactions.csv"),
-        ("merchant_risk", source_files_dir / "merchant_risk.csv", "merchant_risk.csv"),
+        (source_files_dir / "historical_transactions_2026_06.csv", "raw_transactions.csv"),
     ]
-    for dataset, path, output_name in files:
+    for path, output_name in files:
         if not path.exists():
             continue
         rows = add_raw_metadata(read_csv(path), ingestion_date, batch_id, "CSV_FILE", path.name)
@@ -49,7 +39,7 @@ def load_file_sources(ingestion_date=default_ingestion_date, batch_id=default_ba
 
 
 def load_sources(ingestion_date=default_ingestion_date, batch_id=default_batch_id):
-    """Load toàn bộ source systems vào lakehouse."""
+    """Nạp event nguồn vào raw layout tương thích lakehouse."""
     return load_database_sources(ingestion_date, batch_id) + load_file_sources(ingestion_date, batch_id)
 
 

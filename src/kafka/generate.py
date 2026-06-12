@@ -3,9 +3,9 @@ import hashlib
 import random
 from datetime import date, datetime, timedelta
 
-from banking_lakehouse.config.settings import default_volumes, source_db_dir, source_files_dir
-from banking_lakehouse.data_simulator.inject import inject_account_issues, inject_customer_issues, inject_transaction_issues
-from banking_lakehouse.utils.io import ensure_dir, write_csv
+from config.settings import default_volumes, source_db_dir, source_files_dir
+from kafka.inject import inject_account_issues, inject_customer_issues, inject_transaction_issues
+from utils.io import ensure_dir, write_csv
 
 
 provinces = [
@@ -264,7 +264,7 @@ def generate_transactions(accounts, customers, cards, merchants, n):
 
 
 def source_for_channel(channel):
-    """Map channel sang source system."""
+    """Ánh xạ channel sang source system."""
     return {
         "VPBANK_NEO": "MOBILE_APP",
         "NAPAS_QR": "POS_NETWORK",

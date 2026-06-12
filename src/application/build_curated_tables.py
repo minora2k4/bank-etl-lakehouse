@@ -1,7 +1,7 @@
 ﻿from collections import defaultdict
 
-from banking_lakehouse.config.settings import clean_data_dir, curated_data_dir
-from banking_lakehouse.utils.io import read_csv, write_csv
+from config.settings import clean_data_dir, curated_data_dir
+from utils.io import read_csv, write_csv
 
 
 def read_clean_table(table):
@@ -11,18 +11,13 @@ def read_clean_table(table):
 
 
 def read_clean_transactions():
-    """Đọc toàn bộ transactions sạch từ các file ngày."""
-    rows = []
-    if not clean_data_dir.exists():
-        return rows
-    for path in sorted(clean_data_dir.glob("transactions_*.csv")):
-        if path.exists():
-            rows.extend(read_csv(path))
-    return rows
+    """Đọc toàn bộ transactions sạch từ file clean_transactions.csv."""
+    path = clean_data_dir / "clean_transactions.csv"
+    return read_csv(path) if path.exists() else []
 
 
 def build_dimensions():
-    """Build dimension tables từ dữ liệu sạch."""
+    """Xây dựng dimension table từ dữ liệu sạch."""
     mapping = {
         "customers": ("dim_customer", "dim_customer.csv"),
         "accounts": ("dim_account", "dim_account.csv"),
@@ -40,15 +35,11 @@ def build_dimensions():
 
 
 def build_facts():
-    """Build fact tables từ dữ liệu sạch."""
+    """Xây dựng fact table từ dữ liệu sạch."""
     outputs = []
-    by_date = defaultdict(list)
-    for row in read_clean_transactions():
-        by_date[row["transaction_date"]].append(row)
-    for txn_date, rows in by_date.items():
-        out = curated_data_dir / f"fact_transaction_{txn_date}.csv"
-        write_csv(out, rows)
-        outputs.append(out)
+    out = curated_data_dir / "fact_transaction.csv"
+    write_csv(out, read_clean_transactions())
+    outputs.append(out)
 
     for clean_name, dataset, file_name in [
         ("loans", "fact_loan", "fact_loan.csv"),
@@ -62,7 +53,7 @@ def build_facts():
 
 
 def build_daily_transaction_summary():
-    """Build bảng tổng hợp giao dịch theo ngày, kênh, category, tỉnh."""
+    """Xây dựng bảng tổng hợp giao dịch theo ngày, kênh, category, tỉnh."""
     grouped = {}
     for row in read_clean_transactions():
         key = (row["transaction_date"], row["channel"], row["merchant_category"], row["province"])
@@ -97,14 +88,14 @@ def build_daily_transaction_summary():
 
 
 def build_curated_tables():
-    """Build toàn bộ dữ liệu phục vụ phân tích."""
+    """Xây dựng toàn bộ dữ liệu phục vụ phân tích."""
     build_dimensions()
     build_facts()
     build_daily_transaction_summary()
 
 
 def to_int(value):
-    """Cast số an toàn."""
+    """Ép kiểu số an toàn."""
     try:
         if value in ["", None]:
             return 0

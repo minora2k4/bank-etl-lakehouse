@@ -1,3 +1,6 @@
+DROP TABLE IF EXISTS ledger_entries;
+DROP TABLE IF EXISTS processed_transactions;
+DROP TABLE IF EXISTS transactions;
 DROP TABLE IF EXISTS repayments;
 DROP TABLE IF EXISTS loans;
 DROP TABLE IF EXISTS cards;
@@ -40,7 +43,8 @@ CREATE TABLE accounts (
     balance_vnd NUMERIC,
     status TEXT,
     branch_id TEXT,
-    created_at TIMESTAMP
+    created_at TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT now()
 );
 
 CREATE TABLE cards (
@@ -84,4 +88,37 @@ CREATE TABLE repayments (
     paid_amount_vnd NUMERIC,
     days_past_due INTEGER,
     repayment_status TEXT
+);
+
+CREATE TABLE transactions (
+    transaction_id TEXT PRIMARY KEY,
+    account_id TEXT,
+    customer_id TEXT,
+    amount_vnd NUMERIC,
+    transaction_type TEXT,
+    transaction_time TIMESTAMP,
+    status TEXT,
+    created_at TIMESTAMP DEFAULT now()
+);
+
+CREATE TABLE processed_transactions (
+    transaction_id TEXT PRIMARY KEY,
+    kafka_topic TEXT,
+    kafka_partition INTEGER,
+    kafka_offset BIGINT,
+    status TEXT NOT NULL,
+    error_message TEXT,
+    processed_at TIMESTAMP DEFAULT now(),
+    posted_at TIMESTAMP
+);
+
+CREATE TABLE ledger_entries (
+    ledger_id BIGSERIAL PRIMARY KEY,
+    transaction_id TEXT NOT NULL,
+    account_id TEXT NOT NULL,
+    debit_vnd NUMERIC DEFAULT 0,
+    credit_vnd NUMERIC DEFAULT 0,
+    balance_after_vnd NUMERIC NOT NULL,
+    entry_type TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT now()
 );

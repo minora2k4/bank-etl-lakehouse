@@ -7,4 +7,6 @@ ENV PYTHON_BIN=python
 
 COPY . /app
 
-CMD ["sh", "scripts/run_pipeline.sh"]
+RUN pip install --no-cache-dir -r requirements.txt
+
+CMD ["sh", "scripts/pipeline.sh"]

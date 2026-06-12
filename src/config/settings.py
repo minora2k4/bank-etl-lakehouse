@@ -15,7 +15,8 @@ lakehouse_dir = Path(os.getenv("LAKEHOUSE_DIR", root_dir / "lakehouse"))
 raw_data_dir = lakehouse_dir / "raw"
 clean_data_dir = lakehouse_dir / "clean"
 curated_data_dir = lakehouse_dir / "curated"
-quarantine_dir = lakehouse_dir / "quarantine"
+error_data_dir = lakehouse_dir / "error"
+audit_data_dir = lakehouse_dir / "audit"
 
 # Thư mục dành cho Power BI đọc các file thống kê.
 dashboard_dir = Path(os.getenv("DASHBOARD_DIR", root_dir / "dashboard"))
@@ -45,3 +46,10 @@ postgres_tables = [
     "merchants",
     "branches",
 ]
+
+kafka_bootstrap_servers = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
+kafka_topics = {
+    "raw_transactions": "raw-transactions",
+    "clean_transactions": "clean-transactions",
+    "error_transactions": "error-transactions",
+}

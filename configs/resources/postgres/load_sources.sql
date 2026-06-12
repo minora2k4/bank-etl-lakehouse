@@ -1,6 +1,6 @@
 \copy customers FROM '/workspace/data/source_db/customers.csv' WITH (FORMAT csv, HEADER true, NULL '');
 \copy branches FROM '/workspace/data/source_db/branches.csv' WITH (FORMAT csv, HEADER true, NULL '');
-\copy accounts FROM '/workspace/data/source_db/accounts.csv' WITH (FORMAT csv, HEADER true, NULL '');
+\copy accounts (account_id, customer_id, account_type, open_date, balance_vnd, status, branch_id, created_at) FROM '/workspace/data/source_db/accounts.csv' WITH (FORMAT csv, HEADER true, NULL '');
 \copy cards FROM '/workspace/data/source_db/cards.csv' WITH (FORMAT csv, HEADER true, NULL '');
 \copy merchants FROM '/workspace/data/source_db/merchants.csv' WITH (FORMAT csv, HEADER true, NULL '');
 \copy loans FROM '/workspace/data/source_db/loans.csv' WITH (FORMAT csv, HEADER true, NULL '');
