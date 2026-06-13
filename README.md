@@ -54,7 +54,7 @@ sh scripts/kafka.sh
 
 ## Cấu Trúc Lakehouse
 
-Bucket MinIO `banking-lakehouse` chỉ chứa:
+Bucket MinIO `banking-lakehouse` chứa:
 
 - `lakehouse/raw/raw_transactions.csv`
 - `lakehouse/clean/clean_transactions.csv`
@@ -62,10 +62,11 @@ Bucket MinIO `banking-lakehouse` chỉ chứa:
 - `lakehouse/curated/`
 - `lakehouse/audit/`
 
-`source_data/` không còn được mirror lên MinIO. PostgreSQL/source CSV giữ vai trò nguồn dữ liệu chuẩn cho dữ liệu master/tham chiếu.
+`source_data/` không được mirror lên MinIO. PostgreSQL/source CSV giữ vai trò nguồn dữ liệu chuẩn cho dữ liệu master/tham chiếu.
 
 ## Cấu Trúc Source
 
 - `src/kafka`: simulator và transaction producer.
 - `src/spark`: rule chất lượng dữ liệu, lakehouse sink và Spark streaming validator.
 - `src/application/postgres_transaction_updater.py`: cập nhật số dư ACID, chống xử lý trùng và ghi ledger audit.
+- `src/connector/`: helper kết nối MinIO và PostgreSQL.

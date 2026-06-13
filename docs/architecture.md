@@ -2,7 +2,7 @@
 
 ## Mục Tiêu
 
-Project hiện mô phỏng banking lakehouse theo hướng streaming-first:
+Project mô phỏng banking lakehouse theo hướng streaming-first:
 
 1. PostgreSQL lưu dữ liệu master/tham chiếu và số dư tài khoản.
 2. Kafka nhận event giao dịch thô ở topic `raw-transactions`.
@@ -11,6 +11,7 @@ Project hiện mô phỏng banking lakehouse theo hướng streaming-first:
 5. Event lỗi đi vào `error-transactions` và `lakehouse/error/error_transactions.csv`.
 6. `postgres_transaction_updater` consume clean event và cập nhật số dư trong PostgreSQL transaction.
 7. Curated/dashboard CSV được xây dựng từ dữ liệu clean trong lakehouse.
+8. `export_metrics` xuất CSV cho Power BI và sinh `docs/data_quality_report.md`.
 
 ## Luồng Xử Lý
 
@@ -39,14 +40,18 @@ banking-lakehouse/
     curated/
       dim_customer.csv
       dim_account.csv
+      dim_card.csv
       dim_merchant.csv
+      dim_branch.csv
       fact_transaction.csv
+      fact_loan.csv
+      fact_repayment.csv
       daily_transaction_summary.csv
       customer_summary.csv
     audit/
 ```
 
-`source_data/` không còn được đẩy lên MinIO. PostgreSQL/source CSV là nguồn dữ liệu chuẩn cho customers, accounts, cards, loans, repayments, merchants và branches.
+`source_data/` không được đẩy lên MinIO. PostgreSQL/source CSV là nguồn dữ liệu chuẩn cho customers, accounts, cards, loans, repayments, merchants và branches.
 
 ## Topic Kafka
 
@@ -56,6 +61,8 @@ banking-lakehouse/
 | `clean-transactions` | Spark validator | PostgreSQL updater | Event hợp lệ, sẵn sàng ghi nhận |
 | `error-transactions` | Spark validator/updater | lakehouse/dashboard | Lỗi chất lượng dữ liệu hoặc lỗi nghiệp vụ |
 
+Retention: `raw-transactions` và `clean-transactions` giữ 7 ngày; `error-transactions` giữ 30 ngày.
+
 ## Ghi Nhận Giao Dịch ACID Trên PostgreSQL
 
 Updater dùng:
@@ -64,3 +71,9 @@ Updater dùng:
 - `SELECT ... FOR UPDATE` trên `accounts` trước khi đổi số dư.
 - `ledger_entries` làm bảng audit bất biến.
 - Một database transaction cho trạng thái xử lý, business validation, insert ledger và update balance.
+- Kafka offset chỉ được commit sau khi database transaction thành công.
+
+## Connector Modules
+
+- `src/connector/postgres.py` — `postgres_config()` đọc env vars và trả về dict kết nối psycopg3. Được dùng bởi `postgres_transaction_updater`.
+- `src/connector/minio.py` — `minio_config()` đọc env vars; `get_client()` trả về MinIO Python client (cần cài package `minio`); `upload_file()` upload một file lên bucket. Upload hàng loạt dùng `sh scripts/publish.sh` (mc mirror qua Docker).

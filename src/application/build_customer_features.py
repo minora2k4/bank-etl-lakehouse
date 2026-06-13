@@ -111,7 +111,6 @@ def zero_transaction():
         "transaction_amount_30d_vnd": 0,
         "avg_transaction_amount_30d_vnd": 0,
         "max_transaction_amount_30d_vnd": 0,
-        "failed_transaction_count_30d": 0,
         "failed_transaction_rate_30d": 0,
         "night_transaction_count_30d": 0,
         "outlier_transaction_count_30d": 0,

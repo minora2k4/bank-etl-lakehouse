@@ -6,3 +6,4 @@ data/
 lakehouse/
 dashboard/*.csv
 docs/data_quality_report.md
+CLAUDE.md

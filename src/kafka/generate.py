@@ -328,7 +328,6 @@ def generate_all(volumes=None, seed=42):
     for name, rows in source_db.items():
         write_csv(source_db_dir / f"{name}.csv", rows)
     write_csv(source_files_dir / "historical_transactions_2026_06.csv", transactions)
-    write_csv(source_files_dir / "merchant_risk.csv", merchants)
     return {**source_db, "transactions": transactions}
 
 

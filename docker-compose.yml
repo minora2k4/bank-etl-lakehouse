@@ -263,46 +263,6 @@ services:
       - spark-master
       - spark-worker
 
-  airflow:
-    image: apache/airflow:2.10.5-python3.10
-    container_name: airflow
-    user: "0:0"
-    profiles:
-      - airflow
-    ports:
-      - "8081:8080"
-    environment:
-      - AIRFLOW__CORE__LOAD_EXAMPLES=false
-      - AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION=false
-      - AIRFLOW__CORE__EXECUTOR=SequentialExecutor
-      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=sqlite:////opt/airflow/airflow.db
-      - PROJECT_HOME=/opt/airflow/project
-      - _AIRFLOW_DB_MIGRATE=true
-      - _AIRFLOW_WWW_USER_CREATE=true
-      - _AIRFLOW_WWW_USER_USERNAME=admin
-      - _AIRFLOW_WWW_USER_PASSWORD=admin
-      - _AIRFLOW_WWW_USER_FIRSTNAME=Admin
-      - _AIRFLOW_WWW_USER_LASTNAME=User
-      - _AIRFLOW_WWW_USER_ROLE=Admin
-      - _AIRFLOW_WWW_USER_EMAIL=admin@example.com
-      - PYTHON_BIN=python
-      - PYTHONPATH=/opt/airflow/project/src
-      - DATA_DIR=/workspace/data
-      - LAKEHOUSE_DIR=/workspace/lakehouse
-      - DASHBOARD_DIR=/opt/airflow/project/dashboard
-      - DOCS_DIR=/workspace/docs
-    volumes:
-      - ./airflow/dags:/opt/airflow/dags:ro
-      - ./:/opt/airflow/project:ro
-      - runtime_data:/workspace/data
-      - runtime_lakehouse:/workspace/lakehouse
-      - runtime_docs:/workspace/docs
-      - ./dashboard:/opt/airflow/project/dashboard
-    depends_on:
-      - minio
-      - kafka
-      - spark-master
-    command: standalone
 
 volumes:
   runtime_data:

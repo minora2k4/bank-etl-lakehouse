@@ -1,10 +1,11 @@
 import argparse
 import json
-import os
 from importlib import import_module, util
 
 from config.settings import clean_data_dir, kafka_bootstrap_servers, kafka_topics
+from connector.postgres import postgres_config
 from utils.io import read_csv
+from utils.logging import log_info
 
 psycopg = import_module("psycopg") if util.find_spec("psycopg") else None
 _confluent_kafka = import_module("confluent_kafka") if util.find_spec("confluent_kafka") else None
@@ -15,14 +16,7 @@ def connect():
     """Tạo kết nối PostgreSQL bằng psycopg khi service được bật."""
     if psycopg is None:
         raise RuntimeError("Cần cài psycopg[binary] để chạy postgres_transaction_updater")
-
-    return psycopg.connect(
-        host=os.getenv("POSTGRES_HOST", "localhost"),
-        port=os.getenv("POSTGRES_PORT", "5432"),
-        dbname=os.getenv("POSTGRES_DB", "banking"),
-        user=os.getenv("POSTGRES_USER", "banking"),
-        password=os.getenv("POSTGRES_PASSWORD", "banking"),
-    )
+    return psycopg.connect(**postgres_config())
 
 
 def amount_delta(row):
@@ -117,6 +111,7 @@ def post_transaction(conn, row, kafka_meta=None):
             """,
             (transaction_id,),
         )
+    log_info("transaction_posted", transaction_id=transaction_id, account_id=account_id, delta=delta)
     return "POSTED"
 
 
@@ -129,6 +124,7 @@ def mark_rejected(conn, transaction_id, message):
         """,
         (message, transaction_id),
     )
+    log_info("transaction_rejected", transaction_id=transaction_id, reason=message)
 
 
 def load_csv_rows():
@@ -172,6 +168,7 @@ def post_csv():
         for row in load_csv_rows():
             status = post_transaction(conn, row)
             results[status] = results.get(status, 0) + 1
+    log_info("post_csv_done", **results)
     return results
 
 

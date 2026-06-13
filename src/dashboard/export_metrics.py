@@ -6,6 +6,7 @@ from config.settings import (
     clean_data_dir,
     curated_data_dir,
     dashboard_dir,
+    docs_dir,
     error_data_dir,
     raw_data_dir,
 )
@@ -129,10 +130,40 @@ def export_daily_transaction_summary():
     return rows
 
 
+def generate_data_quality_report():
+    """Tạo báo cáo chất lượng dữ liệu dạng markdown vào docs/data_quality_report.md."""
+    quality = export_quality_summary()[0]
+    errors = export_quality_errors()
+
+    lines = [
+        "# Báo Cáo Chất Lượng Dữ Liệu\n",
+        f"**Thời điểm tạo:** {time.strftime('%Y-%m-%d %H:%M:%S')}\n",
+        "## Tóm Tắt\n",
+        f"- Customers hợp lệ: {quality['customers_valid']}",
+        f"- Accounts hợp lệ: {quality['accounts_valid']}",
+        f"- Giao dịch hợp lệ: {quality['transactions_valid']}",
+        f"- Bản ghi lỗi: {quality['invalid_records']}\n",
+        "## Chi Tiết Lỗi\n",
+    ]
+
+    if errors:
+        lines.append("| Source Table | Error Type | Cột | Rule | Số lượng |")
+        lines.append("| --- | --- | --- | --- | --- |")
+        for e in errors:
+            lines.append(
+                f"| {e['source_table']} | {e['error_type']} | {e['failed_column']} | {e['rule_name']} | {e['error_count']} |"
+            )
+    else:
+        lines.append("Không có lỗi nào được ghi nhận.")
+
+    docs_dir.mkdir(parents=True, exist_ok=True)
+    (docs_dir / "data_quality_report.md").write_text("\n".join(lines), encoding="utf-8")
+
+
 def export_dashboard_metrics():
-    """Xuất toàn bộ thống kê về folder dashboard."""
+    """Xuất toàn bộ thống kê về folder dashboard và tạo báo cáo chất lượng dữ liệu."""
     dashboard_dir.mkdir(parents=True, exist_ok=True)
-    return {
+    result = {
         "quality_summary": export_quality_summary(),
         "quality_errors": export_quality_errors(),
         "storage_benchmark": export_storage_benchmark(),
@@ -140,6 +171,8 @@ def export_dashboard_metrics():
         "file_inventory": export_file_inventory(),
         "daily_transaction_summary": export_daily_transaction_summary(),
     }
+    generate_data_quality_report()
+    return result
 
 
 if __name__ == "__main__":

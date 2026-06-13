@@ -6,6 +6,7 @@ def postgres_config():
     return {
         "host": os.getenv("POSTGRES_HOST", "postgres"),
         "port": os.getenv("POSTGRES_PORT", "5432"),
-        "database": os.getenv("POSTGRES_DB", "banking"),
+        "dbname": os.getenv("POSTGRES_DB", "banking"),
         "user": os.getenv("POSTGRES_USER", "banking"),
+        "password": os.getenv("POSTGRES_PASSWORD", "banking"),
     }
