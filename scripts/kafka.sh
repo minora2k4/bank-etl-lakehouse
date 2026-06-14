@@ -1,6 +1,9 @@
 #!/bin/sh
 set -eu
 
+# Tắt path-conversion của Git Bash để /opt/kafka/... không bị đổi sang C:\...; Linux/WSL vô hại.
+export MSYS_NO_PATHCONV=1
+
 docker compose up -d kafka kafka-ui
 
 produce_message() {

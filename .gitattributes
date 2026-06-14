@@ -1,0 +1,3 @@
+# Bắt buộc LF cho shell script và SQL để chạy đúng trong container Linux.
+*.sh text eol=lf
+*.sql text eol=lf

@@ -1,6 +1,10 @@
 #!/bin/sh
 set -eu
 
+# Trên Git Bash (Windows) phải tắt path-conversion để các đường dẫn /opt, /sql truyền
+# vào docker exec không bị đổi thành C:\...; trên Linux/WSL biến này vô hại.
+export MSYS_NO_PATHCONV=1
+
 docker compose up -d kafka kafka-ui spark-master spark-worker jupyter postgres pgadmin minio
 
 until docker compose exec -T kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list >/dev/null 2>&1; do

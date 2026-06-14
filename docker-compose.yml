@@ -48,6 +48,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    restart: unless-stopped
     environment:
       - PYTHONPATH=/app/src
       - DATA_DIR=/workspace/data
@@ -217,17 +218,22 @@ services:
   spark-streaming-validator:
     image: apache/spark:latest
     container_name: spark-streaming-validator
+    # Driver ghi checkpoint + CSV lakehouse vào volume do root tạo, nên chạy bằng root.
+    user: root
     environment:
       - PYTHONPATH=/workspace/src
       - DATA_DIR=/workspace/data
       - LAKEHOUSE_DIR=/workspace/lakehouse
       - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - HOME=/tmp
     command:
       - /opt/spark/bin/spark-submit
       - --master
       - spark://spark-master:7077
+      - --conf
+      - spark.jars.ivy=/tmp/.ivy2
       - --packages
-      - org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.1
+      - org.apache.spark:spark-sql-kafka-0-10_2.13:4.1.2
       - /workspace/src/spark/streaming_validator.py
       - --mode
       - streaming

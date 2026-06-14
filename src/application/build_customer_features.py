@@ -60,20 +60,22 @@ def summarize_transactions(rows):
     """Tổng hợp hành vi giao dịch 30 ngày."""
     out = defaultdict(zero_transaction)
     active_days = defaultdict(set)
+    failed_counts = defaultdict(int)
     for row in rows:
         item = out[row["customer_id"]]
         amount = to_int(row.get("amount_vnd"))
         item["transaction_count_30d"] += 1
         item["transaction_amount_30d_vnd"] += amount
         item["max_transaction_amount_30d_vnd"] = max(item["max_transaction_amount_30d_vnd"], amount)
-        item["failed_transaction_count_30d"] += 1 if row.get("status") == "FAILED" else 0
+        if row.get("status") == "FAILED":
+            failed_counts[row["customer_id"]] += 1
         item["night_transaction_count_30d"] += to_int(row.get("is_night_transaction"))
         item["outlier_transaction_count_30d"] += to_int(row.get("is_outlier"))
         active_days[row["customer_id"]].add(row["transaction_date"])
     for cid, item in out.items():
         count = item["transaction_count_30d"]
         item["avg_transaction_amount_30d_vnd"] = round(item["transaction_amount_30d_vnd"] / count, 2) if count else 0
-        item["failed_transaction_rate_30d"] = round(item.pop("failed_transaction_count_30d") / count, 4) if count else 0
+        item["failed_transaction_rate_30d"] = round(failed_counts[cid] / count, 4) if count else 0
         item["active_days_30d"] = len(active_days[cid])
     return dict(out)
 

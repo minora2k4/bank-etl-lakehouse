@@ -1,6 +1,9 @@
 #!/bin/sh
 set -eu
 
+# Tắt path-conversion của Git Bash để /sql/... không bị đổi sang C:\...; Linux/WSL vô hại.
+export MSYS_NO_PATHCONV=1
+
 postgres_user="${POSTGRES_USER:-banking}"
 postgres_db="${POSTGRES_DB:-banking}"
 
