@@ -1,3 +1,5 @@
+"""Adapter ghi CSV ra lakehouse (raw/clean/error)."""
+
 from config.settings import clean_data_dir, error_data_dir, raw_data_dir
 from utils.io import append_csv, write_csv
 

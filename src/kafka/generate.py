@@ -4,9 +4,8 @@ import random
 from datetime import date, datetime, timedelta
 
 from config.settings import default_volumes, source_db_dir, source_files_dir
-from kafka.inject import inject_account_issues, inject_customer_issues, inject_transaction_issues
+from transform.inject import inject_account_issues, inject_customer_issues, inject_transaction_issues
 from utils.io import ensure_dir, write_csv
-
 
 provinces = [
     ("HA_NOI", "CAU_GIAY"),

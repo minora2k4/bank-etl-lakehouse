@@ -269,6 +269,21 @@ services:
       - spark-master
       - spark-worker
 
+  streamlit:
+    build:
+      context: .
+      dockerfile: Dockerfile.streamlit
+    container_name: streamlit
+    ports:
+      - "8501:8501"
+    environment:
+      - PYTHONPATH=/app/src
+      - DASHBOARD_DIR=/workspace/dashboard
+      - LAKEHOUSE_DIR=/workspace/lakehouse
+    volumes:
+      - ./dashboard:/workspace/dashboard:ro
+      - runtime_lakehouse:/workspace/lakehouse:ro
+
 
 volumes:
   runtime_data:

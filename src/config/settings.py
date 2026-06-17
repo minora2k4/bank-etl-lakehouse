@@ -1,7 +1,6 @@
 ﻿import os
 from pathlib import Path
 
-
 # Thư mục gốc của project.
 root_dir = Path(__file__).resolve().parents[3]
 
@@ -17,6 +16,9 @@ clean_data_dir = lakehouse_dir / "clean"
 curated_data_dir = lakehouse_dir / "curated"
 error_data_dir = lakehouse_dir / "error"
 audit_data_dir = lakehouse_dir / "audit"
+
+# Thư mục chứa số liệu benchmark runtime (Kafka/Spark/DB) cho Streamlit đọc.
+benchmark_dir = Path(os.getenv("BENCHMARK_DIR", lakehouse_dir / "benchmark"))
 
 # Thư mục dành cho Power BI đọc các file thống kê.
 dashboard_dir = Path(os.getenv("DASHBOARD_DIR", root_dir / "dashboard"))

@@ -1,8 +1,7 @@
-﻿from collections import defaultdict
+from collections import defaultdict
 from datetime import datetime
 
-from spark.error_handler import error_record
-
+from transform.error_handler import error_record
 
 valid_gender = {"MALE", "FEMALE", "OTHER", "M", "F", "male"}
 valid_account_status = {"ACTIVE", "CLOSED", "SUSPENDED"}

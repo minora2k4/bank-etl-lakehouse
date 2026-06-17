@@ -7,7 +7,7 @@ from config.settings import (
     raw_data_dir,
     source_db_dir,
 )
-from spark.validators import (
+from transform.validators import (
     validate_accounts,
     validate_customers,
     validate_passthrough,

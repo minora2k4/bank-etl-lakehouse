@@ -1,17 +1,21 @@
 import argparse
 import json
 import time
-from importlib import import_module, util
 
 from application.prepare_clean_data import clean_transaction_fields, error_fields
+from base.base_job import BaseJob
 from config.settings import kafka_bootstrap_servers, kafka_topics, raw_data_dir, source_db_dir
-from spark.lakehouse_sink import write_clean_transactions, write_error_transactions, write_raw_transactions
-from spark.validators import validate_accounts, validate_customers, validate_transactions
+from connector.benchmark_sink import record_benchmark
+from connector.lakehouse_sink import write_clean_transactions, write_error_transactions, write_raw_transactions
+from transform.validators import validate_accounts, validate_customers, validate_transactions
+from utils.exception_handler import handle_fatal_error
 from utils.io import read_csv
 from utils.logging import log_info
+from utils.optional_dependency import load_optional
+from utils.string_constants import StringConstants as SC
 
-_pyspark_sql = import_module("pyspark.sql") if util.find_spec("pyspark.sql") else None
-_pyspark_functions = import_module("pyspark.sql.functions") if util.find_spec("pyspark.sql.functions") else None
+_pyspark_sql = load_optional("pyspark.sql")
+_pyspark_functions = load_optional("pyspark.sql.functions")
 SparkSession = getattr(_pyspark_sql, "SparkSession", None)
 col = getattr(_pyspark_functions, "col", None)
 struct = getattr(_pyspark_functions, "struct", None)
@@ -60,65 +64,6 @@ def run_batch():
     return validate_and_route(rows, append=False)
 
 
-def run_streaming(bootstrap_servers, raw_topic, clean_topic, error_topic, checkpoint_dir):
-    """Chạy Spark Structured Streaming từ raw Kafka event sang topic/CSV clean và error."""
-    if SparkSession is None:
-        raise RuntimeError("Cần cài pyspark để chạy streaming validator")
-
-    spark = (
-        SparkSession.builder.appName("banking-spark-streaming-validator")
-        .master("spark://spark-master:7077")
-        # Cụm demo chỉ 1 core: hạ shuffle partitions để giảm overhead lập lịch task.
-        .config("spark.sql.shuffle.partitions", "8")
-        .getOrCreate()
-    )
-
-    # Nạp reference (account/customer hợp lệ) một lần khi khởi động stream thay vì
-    # đọc lại CSV ở mỗi micro-batch — giảm mạnh thời gian xử lý từng batch.
-    reference = load_reference_ids()
-    log_info("reference_loaded", account_ids=len(reference[0]), customer_ids=len(reference[1]))
-
-    stream = (
-        spark.readStream.format("kafka")
-        .option("kafka.bootstrap.servers", bootstrap_servers)
-        .option("subscribe", raw_topic)
-        .option("startingOffsets", "latest")
-        .load()
-    )
-
-    values = stream.select(col("value").cast("string").alias("value"))
-
-    def handle_batch(batch_df, batch_id):
-        """Xử lý một micro-batch: validate, ghi lakehouse, republish Kafka và log throughput."""
-        t0 = time.perf_counter()
-        raw_values = [row["value"] for row in batch_df.collect()]
-        rows = parse_json_rows(raw_values)
-        if not rows:
-            return
-        write_raw_transactions(rows, append=True)
-        valid, invalid = validate_and_route(rows, append=True, reference=reference)
-        publish_topic(spark, valid, bootstrap_servers, clean_topic)
-        publish_topic(spark, invalid, bootstrap_servers, error_topic)
-        duration = time.perf_counter() - t0
-        # Log thời gian + throughput của từng micro-batch để theo dõi SLA streaming.
-        log_info(
-            "spark_microbatch",
-            batch_id=batch_id,
-            rows=len(rows),
-            valid=len(valid),
-            invalid=len(invalid),
-            duration_ms=round(duration * 1000, 1),
-            throughput_events_s=round(len(rows) / duration) if duration > 0 else 0,
-        )
-
-    query = (
-        values.writeStream.foreachBatch(handle_batch)
-        .option("checkpointLocation", checkpoint_dir)
-        .start()
-    )
-    query.awaitTermination()
-
-
 def publish_topic(spark, rows, bootstrap_servers, topic):
     """Đẩy row từ micro-batch ngược lại vào Kafka."""
     if not rows:
@@ -131,11 +76,95 @@ def publish_topic(spark, rows, bootstrap_servers, topic):
             col(key_column).cast("string").alias("key"),
             to_json(struct("*")).alias("value"),
         )
-        .write.format("kafka")
-        .option("kafka.bootstrap.servers", bootstrap_servers)
-        .option("topic", topic)
+        .write.format(SC.KAFKA_FORMAT)
+        .option(SC.OPT_KAFKA_BOOTSTRAP_SERVERS, bootstrap_servers)
+        .option(SC.OPT_TOPIC, topic)
         .save()
     )
+
+
+class StreamingValidatorJob(BaseJob):
+    """Chạy Spark Structured Streaming từ raw Kafka event sang topic/CSV clean và error."""
+
+    def __init__(self, bootstrap_servers, raw_topic, clean_topic, error_topic, checkpoint_dir):
+        super().__init__(SC.SPARK_APP_NAME)
+        self.bootstrap_servers = bootstrap_servers
+        self.raw_topic = raw_topic
+        self.clean_topic = clean_topic
+        self.error_topic = error_topic
+        self.checkpoint_dir = checkpoint_dir
+        self.spark = None
+        self.reference = None
+        self.query = None
+
+    def setup(self):
+        if SparkSession is None:
+            raise RuntimeError("Cần cài pyspark để chạy streaming validator")
+        self.spark = (
+            SparkSession.builder.appName(SC.SPARK_APP_NAME)
+            .master(SC.SPARK_MASTER)
+            # Cụm demo chỉ 1 core: hạ shuffle partitions để giảm overhead lập lịch task.
+            .config(SC.CONF_SHUFFLE_PARTITIONS, "8")
+            .getOrCreate()
+        )
+        # Nạp reference (account/customer hợp lệ) một lần khi khởi động stream thay vì
+        # đọc lại CSV ở mỗi micro-batch — giảm mạnh thời gian xử lý từng batch.
+        self.reference = load_reference_ids()
+        log_info("reference_loaded", account_ids=len(self.reference[0]), customer_ids=len(self.reference[1]))
+
+    def execute(self):
+        stream = (
+            self.spark.readStream.format(SC.KAFKA_FORMAT)
+            .option(SC.OPT_KAFKA_BOOTSTRAP_SERVERS, self.bootstrap_servers)
+            .option(SC.OPT_SUBSCRIBE, self.raw_topic)
+            .option(SC.OPT_STARTING_OFFSETS, SC.OFFSET_LATEST)
+            .load()
+        )
+        values = stream.select(col("value").cast("string").alias("value"))
+        self.query = (
+            values.writeStream.foreachBatch(self._handle_batch)
+            .option(SC.OPT_CHECKPOINT_LOCATION, self.checkpoint_dir)
+            .start()
+        )
+        self.query.awaitTermination()
+
+    def _handle_batch(self, batch_df, batch_id):
+        """Xử lý một micro-batch: validate, ghi lakehouse, republish Kafka và log throughput."""
+        t0 = time.perf_counter()
+        raw_values = [row["value"] for row in batch_df.collect()]
+        rows = parse_json_rows(raw_values)
+        if not rows:
+            return
+        write_raw_transactions(rows, append=True)
+        valid, invalid = validate_and_route(rows, append=True, reference=self.reference)
+        publish_topic(self.spark, valid, self.bootstrap_servers, self.clean_topic)
+        publish_topic(self.spark, invalid, self.bootstrap_servers, self.error_topic)
+        duration = time.perf_counter() - t0
+        duration_ms = round(duration * 1000, 1)
+        throughput = round(len(rows) / duration) if duration > 0 else 0
+        # Log thời gian + throughput của từng micro-batch để theo dõi SLA streaming.
+        log_info(
+            "spark_microbatch",
+            batch_id=batch_id,
+            rows=len(rows),
+            valid=len(valid),
+            invalid=len(invalid),
+            duration_ms=duration_ms,
+            throughput_events_s=throughput,
+        )
+        record_benchmark(
+            "spark_validator",
+            batch_id=batch_id,
+            rows=len(rows),
+            valid=len(valid),
+            invalid=len(invalid),
+            duration_ms=duration_ms,
+            throughput_events_s=throughput,
+        )
+
+    def teardown(self):
+        if self.spark is not None:
+            self.spark.stop()
 
 
 def main():
@@ -147,10 +176,17 @@ def main():
     parser.add_argument("--error-topic", default=kafka_topics["error_transactions"])
     parser.add_argument("--checkpoint-dir", default="/workspace/lakehouse/audit/spark-validator-checkpoint")
     args = parser.parse_args()
-    if args.mode == "batch":
-        run_batch()
-    else:
-        run_streaming(args.bootstrap_servers, args.raw_topic, args.clean_topic, args.error_topic, args.checkpoint_dir)
+    try:
+        if args.mode == "batch":
+            run_batch()
+        else:
+            StreamingValidatorJob(
+                args.bootstrap_servers, args.raw_topic, args.clean_topic, args.error_topic, args.checkpoint_dir
+            ).run()
+    except SystemExit:
+        raise
+    except Exception as exc:
+        handle_fatal_error("streaming validator failed", exc)
 
 
 if __name__ == "__main__":

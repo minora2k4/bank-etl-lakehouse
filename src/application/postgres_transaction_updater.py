@@ -1,29 +1,22 @@
 import argparse
 import json
 import time
-from importlib import import_module, util
 
+from base.base_job import BaseJob
 from config.settings import clean_data_dir, kafka_bootstrap_servers, kafka_topics
-from connector.postgres import postgres_config
+from connector.benchmark_sink import record_benchmark
+from connector.kafka_connector import create_consumer
+from connector.postgres_connector import connect, psycopg
+from utils.exception_handler import handle_fatal_error
 from utils.io import read_csv
 from utils.logging import log_info
-
-psycopg = import_module("psycopg") if util.find_spec("psycopg") else None
-_confluent_kafka = import_module("confluent_kafka") if util.find_spec("confluent_kafka") else None
-Consumer = getattr(_confluent_kafka, "Consumer", None)
-
-
-def connect():
-    """Tạo kết nối PostgreSQL bằng psycopg khi service được bật."""
-    if psycopg is None:
-        raise RuntimeError("Cần cài psycopg[binary] để chạy postgres_transaction_updater")
-    return psycopg.connect(**postgres_config())
+from utils.string_constants import StringConstants as SC
 
 
 def amount_delta(row):
     """Ánh xạ transaction type sang delta số dư tài khoản."""
     amount = int(float(row.get("amount_vnd") or 0))
-    if row.get("transaction_type") == "DEPOSIT":
+    if row.get("transaction_type") == SC.TXN_TYPE_DEPOSIT:
         return amount
     return -amount
 
@@ -51,21 +44,21 @@ def post_transaction(conn, row, kafka_meta=None, verbose=True):
             ),
         ).fetchone()
         if not inserted:
-            return "DUPLICATE_SKIPPED"
+            return SC.RESULT_DUPLICATE_SKIPPED
 
         account = conn.execute(
             "SELECT balance_vnd FROM accounts WHERE account_id = %s FOR UPDATE",
             (account_id,),
         ).fetchone()
         if account is None:
-            mark_rejected(conn, transaction_id, "ACCOUNT_NOT_FOUND", verbose=verbose)
-            return "REJECTED"
+            mark_rejected(conn, transaction_id, SC.REASON_ACCOUNT_NOT_FOUND, verbose=verbose)
+            return SC.RESULT_REJECTED
 
         current_balance = int(account[0] or 0)
         next_balance = current_balance + delta
         if next_balance < 0:
-            mark_rejected(conn, transaction_id, "INSUFFICIENT_FUNDS", verbose=verbose)
-            return "REJECTED"
+            mark_rejected(conn, transaction_id, SC.REASON_INSUFFICIENT_FUNDS, verbose=verbose)
+            return SC.RESULT_REJECTED
 
         conn.execute(
             """
@@ -114,7 +107,7 @@ def post_transaction(conn, row, kafka_meta=None, verbose=True):
         )
     if verbose:
         log_info("transaction_posted", transaction_id=transaction_id, account_id=account_id, delta=delta)
-    return "POSTED"
+    return SC.RESULT_POSTED
 
 
 def mark_rejected(conn, transaction_id, message, verbose=True):
@@ -142,62 +135,6 @@ def percentile(values, pct):
     ordered = sorted(values)
     rank = max(0, min(len(ordered) - 1, int(round(pct / 100.0 * len(ordered) + 0.5)) - 1))
     return ordered[rank]
-
-
-def consume_kafka(bootstrap_servers, topic, log_interval_seconds=5.0, batch_size=500, batch_timeout=0.5):
-    """Consume clean-transactions theo micro-batch, ghi PostgreSQL và log throughput/latency.
-
-    Mỗi lô ghi trong một transaction DB rồi mới commit offset (at-least-once + idempotency).
-    """
-    if Consumer is None:
-        raise RuntimeError("Cần cài confluent-kafka để dùng --source kafka")
-
-    consumer = Consumer({
-        "bootstrap.servers": bootstrap_servers,
-        "group.id": "postgres-transaction-updater",
-        "enable.auto.commit": False,
-        "auto.offset.reset": "earliest",
-        # Lấy nhiều bản ghi mỗi lần fetch để giảm round-trip tới broker.
-        "fetch.min.bytes": 1 << 16,
-        "fetch.wait.max.ms": 50,
-        "max.partition.fetch.bytes": 8 << 20,
-    })
-    consumer.subscribe([topic])
-
-    start = time.perf_counter()
-    last_log = start
-    total = 0
-    window_count = 0
-    latencies_ms = []
-    with connect() as conn:
-        while True:
-            messages = consumer.consume(num_messages=batch_size, timeout=batch_timeout)
-            now = time.perf_counter()
-            if messages:
-                batch_latencies = process_batch_with_retry(conn, messages)
-                latencies_ms.extend(batch_latencies)
-                # Offset chỉ commit SAU khi cả lô đã ghi DB thành công (đúng thứ tự
-                # at-least-once). Async để không chặn vòng lặp; idempotency chống trùng.
-                consumer.commit(asynchronous=True)
-                total += len(messages)
-                window_count += len(messages)
-
-            # Định kỳ log throughput + end-to-end latency p50/p95/p99 để theo dõi SLA.
-            if now - last_log >= log_interval_seconds and window_count:
-                window = now - last_log
-                log_info(
-                    "updater_throughput",
-                    posted_total=total,
-                    window_msg=window_count,
-                    batch_size=batch_size,
-                    throughput_msg_s=round(window_count / window) if window > 0 else 0,
-                    e2e_p50_ms=round(percentile(latencies_ms, 50), 1),
-                    e2e_p95_ms=round(percentile(latencies_ms, 95), 1),
-                    e2e_p99_ms=round(percentile(latencies_ms, 99), 1),
-                )
-                last_log = now
-                window_count = 0
-                latencies_ms = []
 
 
 def process_batch_with_retry(conn, messages, max_retries=5):
@@ -246,6 +183,70 @@ def process_batch(conn, messages):
     return latencies
 
 
+class KafkaUpdaterJob(BaseJob):
+    """Consume clean-transactions theo micro-batch, ghi PostgreSQL và log throughput/latency.
+
+    Mỗi lô ghi trong một transaction DB rồi mới commit offset (at-least-once + idempotency).
+    """
+
+    def __init__(self, bootstrap_servers, topic, log_interval_seconds=5.0, batch_size=500, batch_timeout=0.5):
+        super().__init__("postgres-transaction-updater")
+        self.bootstrap_servers = bootstrap_servers
+        self.topic = topic
+        self.log_interval_seconds = log_interval_seconds
+        self.batch_size = batch_size
+        self.batch_timeout = batch_timeout
+        self.consumer = None
+        self.conn = None
+
+    def setup(self):
+        self.consumer = create_consumer(self.bootstrap_servers)
+        self.consumer.subscribe([self.topic])
+        self.conn = connect()
+
+    def execute(self):
+        start = time.perf_counter()
+        last_log = start
+        total = 0
+        window_count = 0
+        latencies_ms = []
+        while True:
+            messages = self.consumer.consume(num_messages=self.batch_size, timeout=self.batch_timeout)
+            now = time.perf_counter()
+            if messages:
+                batch_latencies = process_batch_with_retry(self.conn, messages)
+                latencies_ms.extend(batch_latencies)
+                # Offset chỉ commit SAU khi cả lô đã ghi DB thành công (đúng thứ tự
+                # at-least-once). Async để không chặn vòng lặp; idempotency chống trùng.
+                self.consumer.commit(asynchronous=True)
+                total += len(messages)
+                window_count += len(messages)
+
+            # Định kỳ log throughput + end-to-end latency p50/p95/p99 để theo dõi SLA.
+            if now - last_log >= self.log_interval_seconds and window_count:
+                window = now - last_log
+                metrics = {
+                    "posted_total": total,
+                    "window_msg": window_count,
+                    "batch_size": self.batch_size,
+                    "throughput_msg_s": round(window_count / window) if window > 0 else 0,
+                    "e2e_p50_ms": round(percentile(latencies_ms, 50), 1),
+                    "e2e_p95_ms": round(percentile(latencies_ms, 95), 1),
+                    "e2e_p99_ms": round(percentile(latencies_ms, 99), 1),
+                }
+                log_info("updater_throughput", **metrics)
+                record_benchmark("db_updater", **metrics)
+                last_log = now
+                window_count = 0
+                latencies_ms = []
+
+    def teardown(self):
+        if self.consumer is not None:
+            self.consumer.close()
+        if self.conn is not None:
+            self.conn.close()
+
+
 def post_csv():
     with connect() as conn:
         results = {}
@@ -264,10 +265,15 @@ def main():
     parser.add_argument("--batch-size", type=int, default=500,
                         help="Số bản ghi gộp vào một transaction DB mỗi lô")
     args = parser.parse_args()
-    if args.source == "kafka":
-        consume_kafka(args.bootstrap_servers, args.topic, batch_size=args.batch_size)
-    else:
-        print(json.dumps(post_csv(), sort_keys=True))
+    try:
+        if args.source == "kafka":
+            KafkaUpdaterJob(args.bootstrap_servers, args.topic, batch_size=args.batch_size).run()
+        else:
+            print(json.dumps(post_csv(), sort_keys=True))
+    except SystemExit:
+        raise
+    except Exception as exc:
+        handle_fatal_error("postgres transaction updater failed", exc)
 
 
 if __name__ == "__main__":

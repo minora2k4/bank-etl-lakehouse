@@ -13,7 +13,7 @@ def ensure_dir(path):
 
 def read_csv(path):
     """Đọc CSV thành list dict."""
-    with open(path, "r", encoding="utf-8", newline="") as f:
+    with open(path, encoding="utf-8", newline="") as f:
         return list(csv.DictReader(f))
 
 

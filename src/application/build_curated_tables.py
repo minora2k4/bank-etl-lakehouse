@@ -1,6 +1,4 @@
-﻿from collections import defaultdict
-
-from config.settings import clean_data_dir, curated_data_dir
+﻿from config.settings import clean_data_dir, curated_data_dir
 from utils.io import read_csv, write_csv
 
 
@@ -26,7 +24,7 @@ def build_dimensions():
         "branches": ("dim_branch", "dim_branch.csv"),
     }
     outputs = []
-    for clean_name, (dataset, file_name) in mapping.items():
+    for clean_name, (_dataset, file_name) in mapping.items():
         rows = read_clean_table(clean_name)
         out = curated_data_dir / file_name
         write_csv(out, rows)
@@ -41,7 +39,7 @@ def build_facts():
     write_csv(out, read_clean_transactions())
     outputs.append(out)
 
-    for clean_name, dataset, file_name in [
+    for clean_name, _dataset, file_name in [
         ("loans", "fact_loan", "fact_loan.csv"),
         ("repayments", "fact_repayment", "fact_repayment.csv"),
     ]:
