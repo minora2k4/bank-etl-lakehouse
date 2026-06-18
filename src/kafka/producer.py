@@ -70,8 +70,10 @@ class TransactionProducerJob(BaseJob):
     Producer Kafka chỉ tạo một lần ở setup và flush ở teardown; định kỳ log tiến độ + throughput.
     """
 
-    def __init__(self, count, interval_seconds, sink, bootstrap_servers, topic, seed, acks=SC.ACKS_ALL):
+    def __init__(self, count, interval_seconds, sink, bootstrap_servers, topic, seed, acks=SC.ACKS_ALL,
+                 log_interval_seconds=5.0):
         super().__init__("transaction-producer")
+        # count <= 0 nghĩa là bắn LIÊN TỤC (vô hạn) cho demo streaming.
         self.count = count
         self.interval_seconds = interval_seconds
         self.sink = sink
@@ -79,9 +81,12 @@ class TransactionProducerJob(BaseJob):
         self.topic = topic
         self.seed = seed
         self.acks = acks
+        self.log_interval_seconds = log_interval_seconds
         self.producer = None
         self.start = None
         self.sent = 0
+        self.last_log = None
+        self.window_start_sent = 0
 
     def setup(self):
         random.seed(self.seed)
@@ -93,8 +98,12 @@ class TransactionProducerJob(BaseJob):
 
     def execute(self):
         self.start = time.perf_counter()
-        last_log = self.start
-        for sequence in range(1, self.count + 1):
+        self.last_log = self.start
+        self.window_start_sent = 0
+        sequence = 0
+        # count <= 0: chạy mãi tới khi bị dừng (Ctrl-C / docker stop); ngược lại bắn đúng count.
+        while self.count <= 0 or sequence < self.count:
+            sequence += 1
             event = build_transaction_event(sequence, self.accounts, self.customers_by_id, self.merchants)
             if self.sink in ["stdout", "all"]:
                 write_stdout([event])
@@ -105,13 +114,24 @@ class TransactionProducerJob(BaseJob):
             self.sent += 1
 
             now = time.perf_counter()
-            if now - last_log >= 5:
-                rate = self.sent / (now - self.start) if now > self.start else 0
-                log_info("producer_progress", sent=self.sent, elapsed_s=round(now - self.start, 2),
-                         throughput_msg_s=round(rate))
-                last_log = now
-            if self.interval_seconds and sequence < self.count:
+            # Định kỳ log + ghi benchmark NGAY TRONG lúc chạy để Streamlit thấy throughput
+            # producer khi chế độ liên tục (teardown có thể không bao giờ tới).
+            if now - self.last_log >= self.log_interval_seconds:
+                self._record_window(now)
+            if self.interval_seconds and (self.count <= 0 or sequence < self.count):
                 time.sleep(self.interval_seconds)
+
+    def _record_window(self, now):
+        """Ghi throughput của cửa sổ kể từ lần log gần nhất (log + benchmark cùng schema)."""
+        window = now - self.last_log
+        window_sent = self.sent - self.window_start_sent
+        rate = round(window_sent / window) if window > 0 else 0
+        log_info("producer_progress", sent=self.sent, elapsed_s=round(now - self.start, 2),
+                 throughput_msg_s=rate)
+        record_benchmark("kafka_producer", sent=self.sent, window_msg=window_sent,
+                         elapsed_s=round(now - self.start, 3), throughput_msg_s=rate)
+        self.last_log = now
+        self.window_start_sent = self.sent
 
     def _send_event(self, event):
         payload = json.dumps(event, ensure_ascii=False).encode("utf-8")
@@ -129,16 +149,18 @@ class TransactionProducerJob(BaseJob):
         if self.producer is not None:
             self.producer.flush()
         if self.start is not None:
-            elapsed = time.perf_counter() - self.start
+            now = time.perf_counter()
+            # Ghi nốt cửa sổ còn dư (đảm bảo run ngắn dưới log_interval vẫn có 1 dòng benchmark).
+            if self.sent > self.window_start_sent:
+                self._record_window(now)
+            elapsed = now - self.start
             throughput = round(self.sent / elapsed) if elapsed > 0 else 0
             log_info("producer_done", sent=self.sent, elapsed_s=round(elapsed, 3), throughput_msg_s=throughput)
-            record_benchmark("kafka_producer", sent=self.sent, elapsed_s=round(elapsed, 3),
-                             throughput_msg_s=throughput)
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--count", type=int, default=10)
+    parser.add_argument("--count", type=int, default=10, help="Số event cần bắn; <= 0 nghĩa là bắn liên tục")
     parser.add_argument("--interval-seconds", type=float, default=0.2)
     parser.add_argument("--sink", choices=["stdout", "kafka", "csv", "all"], default="stdout")
     parser.add_argument("--bootstrap-servers", default=kafka_bootstrap_servers)

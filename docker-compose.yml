@@ -31,12 +31,14 @@ services:
       - DATA_DIR=/workspace/data
       - LAKEHOUSE_DIR=/workspace/lakehouse
       - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+    # STREAM_TRANSACTIONS<=0 (mặc định 0) = bắn liên tục để xem benchmark trực tiếp;
+    # đặt số dương nếu muốn dừng sau N event.
     command: >
       python -m kafka.producer
       --sink kafka
       --bootstrap-servers kafka:9092
       --topic raw-transactions
-      --count ${STREAM_TRANSACTIONS:-100}
+      --count ${STREAM_TRANSACTIONS:-0}
       --interval-seconds ${STREAM_INTERVAL_SECONDS:-0.2}
     volumes:
       - runtime_data:/workspace/data
@@ -246,26 +248,6 @@ services:
       - ./configs:/workspace/configs:ro
     depends_on:
       - kafka
-      - spark-master
-      - spark-worker
-
-  jupyter:
-    image: jupyter/pyspark-notebook:latest
-    container_name: jupyter
-    ports:
-      - "8888:8888"
-      - "4040:4040"
-    environment:
-      - SPARK_MASTER=spark://spark-master:7077
-      - SPARK_DRIVER_MEMORY=2G
-      - SPARK_EXECUTOR_MEMORY=2G
-    volumes:
-      - runtime_data:/workspace/data
-      - runtime_lakehouse:/workspace/lakehouse
-      - ./dashboard:/workspace/dashboard
-      - ./src:/workspace/src:ro
-      - ./configs:/workspace/configs:ro
-    depends_on:
       - spark-master
       - spark-worker
 

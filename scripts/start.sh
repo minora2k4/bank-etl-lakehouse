@@ -52,18 +52,25 @@ case "$mode" in
     ;;
   batch)
     # Batch demo: chạy pipeline container rồi đẩy lakehouse lên MinIO.
-    docker compose run --rm pipeline
+    # --build để luôn dùng code mới nhất (compose KHÔNG tự rebuild image khi code đổi).
+    docker compose run --rm --build pipeline
     publish_lakehouse
     ;;
   streaming)
     # Streaming demo đầy đủ: dựng nền tảng -> sinh dữ liệu tham chiếu -> nạp Postgres ->
     # bật Spark validator + updater -> bắn producer -> publish.
     sh scripts/setup.sh
-    docker compose run --rm pipeline
+    # --build ở các lệnh dưới để image producer/updater/pipeline luôn khớp code hiện tại.
+    docker compose run --rm --build pipeline
     load_postgres
-    docker compose up -d spark-streaming-validator postgres-transaction-updater
-    docker compose run --rm transaction-producer
+    docker compose up -d --build spark-streaming-validator postgres-transaction-updater
+    # Producer chạy nền và bắn liên tục (STREAM_TRANSACTIONS<=0) để Kafka luôn có message mới
+    # và Streamlit cập nhật benchmark theo thời gian thực.
+    docker compose up -d --build transaction-producer
     publish_lakehouse
+    echo "Streaming đang chạy: producer bắn liên tục -> Spark -> Postgres."
+    echo "Xem benchmark: http://localhost:8501  ·  Kafka UI: http://localhost:8083"
+    echo "Dừng producer: docker compose stop transaction-producer"
     ;;
   *)
     echo "Usage: sh scripts/start.sh [batch|streaming|pipeline]" >&2

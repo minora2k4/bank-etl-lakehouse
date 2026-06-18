@@ -5,7 +5,7 @@ set -eu
 # vào docker exec không bị đổi thành C:\...; trên Linux/WSL biến này vô hại.
 export MSYS_NO_PATHCONV=1
 
-docker compose up -d kafka kafka-ui spark-master spark-worker jupyter postgres pgadmin minio streamlit
+docker compose up -d kafka kafka-ui spark-master spark-worker postgres pgadmin minio streamlit
 
 until docker compose exec -T kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list >/dev/null 2>&1; do
   sleep 2
